@@ -12,8 +12,8 @@ services:
       - key: SECRET_KEY
         generateValue: true
 
-  # Frontend Service (Deployed as Static Site - Recommended for React)
-  - type: static_site
+  # Frontend Service (Deployed as Static Site)
+  - type: static
     name: Saniya_Frontend
     env: node
     buildCommand: cd frontend && npm install && npm run build
