@@ -51,20 +51,6 @@ const Chatbot = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Handle browser back button to logout
-  useEffect(() => {
-    const handleBackButton = () => {
-      console.log("Back button detected, logging out...");
-      handleLogout();
-    };
-
-    window.addEventListener('popstate', handleBackButton);
-    
-    return () => {
-      window.removeEventListener('popstate', handleBackButton);
-    };
-  }, []);
-
   const handleClearHistory = async () => {
     if (window.confirm('Are you sure you want to clear all chat history?')) {
       try {
@@ -297,14 +283,14 @@ const Chatbot = () => {
                     </div>
                     <div className={`rounded-2xl px-5 py-4 text-[15px] leading-relaxed shadow-sm ${msg.sender === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white text-slate-700 rounded-tl-none border border-gray-50'}`}>
                       <div className="whitespace-pre-wrap">{msg.text}</div>
-                      {msg.data?.type === 'mcq' && (
+                      {msg.data?.type === 'mcq' && msg.data?.options && (
                         <div className="mt-4 space-y-2 border-t border-gray-50 pt-4">
                           {Object.entries(msg.data.options).map(([letter, opt]: [string, any]) => (
                             <div key={letter} className={`flex items-center gap-3 rounded-lg border p-2.5 text-sm transition-colors ${letter === msg.data.best_option ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-100'}`}>
                               <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${letter === msg.data.best_option ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
                                 {letter}
                               </span>
-                              <span>{opt.text}</span>
+                              <span>{opt?.text || 'Option'}</span>
                             </div>
                           ))}
                         </div>
