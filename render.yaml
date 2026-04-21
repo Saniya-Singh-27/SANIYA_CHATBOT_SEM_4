@@ -8,16 +8,16 @@ services:
     plan: free
     envVars:
       - key: DATABASE_URL
-        sync: false # You will get this from Neon
+        sync: false
       - key: SECRET_KEY
         generateValue: true
 
-  # Frontend Service
-  - type: static
+  # Frontend Service (Deployed as Web Service)
+  - type: web
     name: Saniya_Frontend
     env: node
     buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: frontend/dist
+    startCommand: cd frontend && npx serve -s dist
     plan: free
     envVars:
       - key: VITE_API_URL
