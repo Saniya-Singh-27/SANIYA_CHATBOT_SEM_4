@@ -21,7 +21,4 @@ services:
     plan: free
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: Saniya_Backend
-          property: host
+        sync: false
