@@ -3,7 +3,7 @@ import Login from './components/Login';
 import Signup from './components/Signup';
 import Chatbot from './components/Chatbot';
 import './index.css';
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 
 // Error Boundary to prevent white screen
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
