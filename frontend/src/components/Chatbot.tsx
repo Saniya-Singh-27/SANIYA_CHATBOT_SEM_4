@@ -181,7 +181,7 @@ const Chatbot = () => {
 
       let botText = '';
       if (typeof botData === 'string' || !botData) {
-        throw new Error('Invalid response format from server');
+        throw new Error('Server returned an invalid format (HTML/String). This usually means the VITE_API_URL environment variable is missing on Render, causing the frontend to request its own URL instead of the backend.');
       } else if (botData.type === 'plain') {
         botText = botData.response || 'No response provided.';
       } else if (botData.type === 'mcq') {
@@ -201,7 +201,12 @@ const Chatbot = () => {
       setMessages(prev => [...prev, botMessage]);
       fetchHistory(); // Refresh sidebar history
     } catch (err: any) {
-      const errorMsg = err.response?.status === 401 ? 'Session expired. Please login again.' : 'Failed to get response. Please try again.';
+      let errorMsg = 'Failed to get response. Please try again.';
+      if (err.response?.status === 401) {
+        errorMsg = 'Session expired. Please login again.';
+      } else if (err.message && err.message.includes('Server returned an invalid format')) {
+        errorMsg = err.message;
+      }
       setMessages(prev => [...prev, { id: Date.now() + 1, text: errorMsg, sender: 'bot' }]);
       if (err.response?.status === 401) {
         setTimeout(() => navigate('/login'), 2000);
