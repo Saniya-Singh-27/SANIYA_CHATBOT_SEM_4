@@ -1,0 +1,233 @@
+import pandas as pd
+import numpy as np
+import joblib
+import re
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+from nltk.tokenize import word_tokenize
+from sklearn.metrics.pairwise import cosine_similarity
+import sys
+import random
+
+# Download necessary NLTK data
+for r in ['stopwords', 'punkt', 'wordnet', 'punkt_tab']:
+    nltk.download(r, quiet=True)
+
+class SmartChatbot:
+    def __init__(self):
+        try:
+            # Load models
+            # retrieval_tfidf_model.pkl is used for sentence questions (finding reference answers)
+            self.retrieval_tfidf = joblib.load('retrieval_tfidf_model.pkl')
+            # naive_bayes_model.pkl is used for MCQ option scoring
+            self.nb_model = joblib.load('naive_bayes_model.pkl')
+            
+            # We use smart_assessment_model.pkl to get the Knowledge Base (question_index)
+            # since the CSV data is not directly available.
+            assessment_data = joblib.load('smart_assessment_model.pkl')
+            self.kb = assessment_data.get('question_index')
+            
+            if self.kb is None:
+                print("Error: Could not find Knowledge Base in smart_assessment_model.pkl")
+                sys.exit(1)
+            
+            # Pre-calculate KB vectors for retrieval
+            self.kb['question_clean'] = self.kb['question'].apply(self.preprocess)
+            self.kb_vectors = self.retrieval_tfidf.transform(self.kb['question_clean'])
+            
+            self.lemmatizer = WordNetLemmatizer()
+            self.stop_words = set(stopwords.words('english'))
+            
+            # MCQ patterns
+            self.MCQ_PATTERNS = [
+                r'\b[AaBbCcDd][\)\.]\s*\S+',
+                r'\b[1234][\)\.]\s*\S+',
+                r'\([AaBbCcDd]\)\s*\S+',
+                r'\w+\s*/\s*\w+\s*/\s*\w+',
+            ]
+            
+            print("✅ Smart Chatbot Initialized!")
+            
+        except Exception as e:
+            print(f"Error during initialization: {e}")
+            sys.exit(1)
+
+    def preprocess(self, text):
+        if not text or pd.isna(text):
+            return ''
+        text = str(text).lower()
+        text = re.sub(r'[^a-z\s]', ' ', text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        tokens = word_tokenize(text)
+        lemmatizer = WordNetLemmatizer()
+        stop_words = set(stopwords.words('english'))
+        return ' '.join(
+            lemmatizer.lemmatize(t) for t in tokens
+            if t not in stop_words and len(t) > 2
+        )
+
+    def is_mcq(self, text):
+        for pattern in self.MCQ_PATTERNS:
+            matches = re.findall(pattern, text)
+            if len(matches) >= 2:
+                return True
+        return False
+
+    def parse_mcq(self, text):
+        text = text.strip()
+        text = re.sub(r'\b1[\)\.]', 'A)', text)
+        text = re.sub(r'\b2[\)\.]', 'B)', text)
+        text = re.sub(r'\b3[\)\.]', 'C)', text)
+        text = re.sub(r'\b4[\)\.]', 'D)', text)
+        text = re.sub(r'\(([AaBbCcDd])\)', lambda m: m.group(1).upper()+')', text)
+        text = re.sub(r'\b([AaBbCcDd])\.\s', lambda m: m.group(1).upper()+') ', text)
+
+        option_pattern = r'\b([ABCD])\)'
+        splits = re.split(option_pattern, text, flags=re.IGNORECASE)
+
+        if len(splits) < 3:
+            return {'question': text, 'options': {}}
+
+        question_stem = splits[0].strip()
+        options = {}
+        for i in range(1, len(splits)-1, 2):
+            letter = splits[i].upper()
+            value = splits[i+1].strip().rstrip(',;') if i+1 < len(splits) else ''
+            if letter in 'ABCD' and value:
+                options[letter] = value
+        return {'question': question_stem, 'options': options}
+
+    def get_plain_response(self, user_question):
+        q_clean = self.preprocess(user_question)
+        q_vec = self.retrieval_tfidf.transform([q_clean])
+        sims = cosine_similarity(q_vec, self.kb_vectors).flatten()
+        best_idx = sims.argmax()
+        score = sims[best_idx]
+        
+        if score < 0.12:
+            return {
+                "type": "plain",
+                "status": "not_found",
+                "response": "I don't have enough information on that. Try asking about science topics."
+            }
+        
+        matched = self.kb.iloc[best_idx]['question']
+        answer = self.kb.iloc[best_idx]['reference_answer']
+        return {
+            "type": "plain",
+            "status": "success",
+            "match_confidence": round(float(score), 4),
+            "matched_question": matched,
+            "response": answer
+        }
+
+    def answer_plain(self, user_question):
+        res = self.get_plain_response(user_question)
+        sep = '─' * 60
+        print(f"\n{sep}")
+        print("💬 PLAIN QUESTION DETECTED")
+        print(sep)
+        
+        if res["status"] == "not_found":
+            print(f"🤖 Bot: {res['response']}")
+        else:
+            print(f"🎯 Match Confidence: {res['match_confidence']:.1%}")
+            print(f"🤖 Bot: Here is what I found:\n\n   {res['response']}")
+        print(sep)
+
+    def get_mcq_response(self, parsed):
+        question_stem = parsed['question']
+        options = parsed['options']
+
+        if len(options) < 2:
+            return {
+                "type": "mcq",
+                "status": "error",
+                "response": "Could not parse enough options."
+            }
+
+        # Find reference answer for explanation
+        q_clean = self.preprocess(question_stem)
+        q_vec = self.retrieval_tfidf.transform([q_clean])
+        sims = cosine_similarity(q_vec, self.kb_vectors).flatten()
+        best_idx = sims.argmax()
+        ref_answer = self.kb.iloc[best_idx]['reference_answer']
+
+        # Signal 1: Similarity to reference answer
+        ref_clean = self.preprocess(ref_answer)
+        ref_vec = self.retrieval_tfidf.transform([ref_clean])
+
+        option_scores = {}
+        for letter, opt_text in options.items():
+            opt_clean = self.preprocess(opt_text)
+            opt_vec = self.retrieval_tfidf.transform([opt_clean])
+            cos_sim = cosine_similarity(opt_vec, ref_vec).flatten()[0]
+            
+            option_scores[letter] = {
+                'text': opt_text,
+                'cos_sim': round(float(cos_sim), 4)
+            }
+
+        best_letter = max(option_scores, key=lambda l: option_scores[l]['cos_sim'])
+        
+        return {
+            "type": "mcq",
+            "status": "success",
+            "question": question_stem,
+            "options": option_scores,
+            "best_option": best_letter,
+            "correct_answer": options[best_letter],
+            "explanation": ref_answer
+        }
+
+    def answer_mcq(self, parsed):
+        res = self.get_mcq_response(parsed)
+        if res["status"] == "error":
+            print(f"⚠️ {res['response']}")
+            return
+
+        sep = '─' * 60
+        print(f"\n{sep}")
+        print("📋 MCQ DETECTED")
+        print(sep)
+        print(f"❓ Question: {res['question']}")
+        print(sep)
+        for letter in sorted(res['options']):
+            s = res['options'][letter]
+            mark = "✅ ANSWER" if letter == res['best_option'] else ""
+            print(f"  {letter}) {s['text'][:40]:<40} {mark}")
+        
+        print(sep)
+        print(f"✅ Correct Answer: ({res['best_option']}) {res['correct_answer']}")
+        print(f"\n📖 Explanation:\n   {res['explanation']}")
+        print(sep)
+
+    def run(self):
+        print("\n" + "="*60)
+        print("      🤖 SMART AUTO-DETECTING CHATBOT")
+        print("="*60)
+        print("Ask me a science question or an MCQ!")
+        print("Type 'exit' to quit.\n")
+
+        while True:
+            try:
+                user_input = input("🧑 You: ").strip()
+                if user_input.lower() == 'exit':
+                    break
+                if not user_input:
+                    continue
+
+                if self.is_mcq(user_input):
+                    parsed = self.parse_mcq(user_input)
+                    self.answer_mcq(parsed)
+                else:
+                    self.answer_plain(user_input)
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    bot = SmartChatbot()
+    bot.run()
