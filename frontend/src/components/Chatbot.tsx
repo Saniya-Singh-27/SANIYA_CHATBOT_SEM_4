@@ -180,10 +180,14 @@ const Chatbot = () => {
       }
 
       let botText = '';
-      if (botData.type === 'plain') {
-        botText = botData.response;
+      if (typeof botData === 'string' || !botData) {
+        throw new Error('Invalid response format from server');
+      } else if (botData.type === 'plain') {
+        botText = botData.response || 'No response provided.';
+      } else if (botData.type === 'mcq') {
+        botText = `Correct Answer: (${botData.best_option || '?'}) ${botData.correct_answer || ''}\n\nExplanation: ${botData.explanation || ''}`;
       } else {
-        botText = `Correct Answer: (${botData.best_option}) ${botData.correct_answer}\n\nExplanation: ${botData.explanation}`;
+        botText = botData.response || 'An unexpected response was received.';
       }
 
       const botMessage: Message = {
