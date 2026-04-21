@@ -68,6 +68,16 @@ class SmartChatbot:
         )
 
     def is_mcq(self, text):
+        # Only treat as MCQ if it actually has options patterns
+        # AND it doesn't look like a simple plain question
+        plain_questions = [
+            r'^what is', r'^what are', r'^how do', r'^how does', r'^tell me about', r'^define'
+        ]
+        text_lower = text.lower().strip()
+        for p in plain_questions:
+            if re.match(p, text_lower):
+                return False
+
         for pattern in self.MCQ_PATTERNS:
             matches = re.findall(pattern, text)
             if len(matches) >= 2:
