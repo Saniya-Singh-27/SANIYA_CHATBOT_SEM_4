@@ -68,24 +68,27 @@ class SmartChatbot:
         )
 
     def is_mcq(self, text):
-        # Only treat as MCQ if it actually has options patterns
-        # AND it doesn't look like a simple plain question
-        plain_questions = [
-            r'^what is', r'^what are', r'^how do', r'^how does', r'^tell me about', r'^define'
-        ]
+        # 1. Stricter plain question check (case-insensitive, ignores leading space)
         text_lower = text.lower().strip()
-        for p in plain_questions:
-            if re.match(p, text_lower):
-                return False
+        plain_starts = ('what is', 'what are', 'how do', 'how does', 'tell me', 'define', 'explain', 'why')
+        if text_lower.startswith(plain_starts):
+            return False
 
+        # 2. Check for actual MCQ options patterns (A), B), 1., etc.)
+        # We now require at least 2 distinct options to consider it an MCQ
+        matches = []
         for pattern in self.MCQ_PATTERNS:
-            matches = re.findall(pattern, text)
-            if len(matches) >= 2:
-                return True
-        return False
+            matches.extend(re.findall(pattern, text))
+        
+        # Must have at least 2 options to be an MCQ
+        if len(set(matches)) < 2:
+            return False
+            
+        return True
 
     def parse_mcq(self, text):
         text = text.strip()
+        # Normalize various option formats to A), B), C), D)
         text = re.sub(r'\b1[\)\.]', 'A)', text)
         text = re.sub(r'\b2[\)\.]', 'B)', text)
         text = re.sub(r'\b3[\)\.]', 'C)', text)
@@ -97,7 +100,7 @@ class SmartChatbot:
         splits = re.split(option_pattern, text, flags=re.IGNORECASE)
 
         if len(splits) < 3:
-            return {'question': text, 'options': {}}
+            return {'question': text, 'options': {}, 'error': True}
 
         question_stem = splits[0].strip()
         options = {}
@@ -106,7 +109,12 @@ class SmartChatbot:
             value = splits[i+1].strip().rstrip(',;') if i+1 < len(splits) else ''
             if letter in 'ABCD' and value:
                 options[letter] = value
-        return {'question': question_stem, 'options': options}
+        
+        return {
+            'question': question_stem, 
+            'options': options,
+            'error': len(options) < 2
+        }
 
     def get_plain_response(self, user_question):
         q_clean = self.preprocess(user_question)

@@ -230,13 +230,16 @@ async def ask_question(
         # 2. Get model response
         if chatbot.is_mcq(user_input):
             parsed = chatbot.parse_mcq(user_input)
-            response = chatbot.get_mcq_response(parsed)
+            if not parsed.get('error'):
+                response = chatbot.get_mcq_response(parsed)
+            else:
+                response = chatbot.get_plain_response(user_input)
         else:
             response = chatbot.get_plain_response(user_input)
             
-        # Ensure response is a dictionary we can modify
-        if not isinstance(response, dict):
-            response = {"response": str(response), "type": "plain"}
+        # Ensure response is a dictionary and handle error status
+        if not isinstance(response, dict) or response.get('status') == 'error':
+            response = chatbot.get_plain_response(user_input)
 
         # 3. Record question and response in ChatHistory
         history_entry = models.ChatHistory(
