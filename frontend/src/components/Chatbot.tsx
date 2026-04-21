@@ -37,9 +37,14 @@ const Chatbot = () => {
   const fetchHistory = async () => {
     try {
       const response = await chatApi.getHistory();
-      setHistory(response.data);
+      if (response && response.data && Array.isArray(response.data)) {
+        setHistory(response.data);
+      } else {
+        setHistory([]);
+      }
     } catch (err) {
       console.error('Failed to fetch history', err);
+      setHistory([]);
     }
   };
 
@@ -91,39 +96,44 @@ const Chatbot = () => {
   };
 
   const loadConversation = async (item: any) => {
+    if (!item || !item.id) return;
     setCurrentConversationId(item.id);
     setLoading(true);
     try {
       const response = await chatApi.getConversationMessages(item.id);
-      const conversationMessages: Message[] = [];
-      
-      response.data.forEach((msg: any) => {
-        // Add User Message
-        conversationMessages.push({
-          id: msg.id * 2, // Ensure unique IDs
-          text: msg.question,
-          sender: 'user'
-        });
-
-        // Add Bot Response
-        const botData = msg.response;
-        let botText = '';
-        if (botData.type === 'plain') {
-          botText = botData.response;
-        } else {
-          botText = `Correct Answer: (${botData.best_option}) ${botData.correct_answer}\n\nExplanation: ${botData.explanation}`;
-        }
+      if (response && response.data && Array.isArray(response.data)) {
+        const conversationMessages: Message[] = [];
         
-        conversationMessages.push({
-          id: msg.id * 2 + 1,
-          text: botText,
-          sender: 'bot',
-          type: botData.type,
-          data: botData
-        });
-      });
+        response.data.forEach((msg: any) => {
+          // Add User Message
+          conversationMessages.push({
+            id: msg.id * 2,
+            text: msg.question || '',
+            sender: 'user'
+          });
 
-      setMessages(conversationMessages);
+          // Add Bot Response
+          const botData = msg.response;
+          if (botData) {
+            let botText = '';
+            if (botData.type === 'plain') {
+              botText = botData.response || '';
+            } else if (botData.type === 'mcq') {
+              botText = `Correct Answer: (${botData.best_option || '?'}) ${botData.correct_answer || ''}\n\nExplanation: ${botData.explanation || ''}`;
+            }
+            
+            conversationMessages.push({
+              id: msg.id * 2 + 1,
+              text: botText,
+              sender: 'bot',
+              type: botData.type,
+              data: botData
+            });
+          }
+        });
+
+        setMessages(conversationMessages);
+      }
     } catch (err) {
       console.error('Failed to load conversation', err);
     } finally {
