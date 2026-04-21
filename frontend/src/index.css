@@ -1,11 +1,6 @@
-@import "tailwindcss";
-
-@theme {
-  --color-chat-bg: #f0f2f5;
-  --color-sidebar-bg: #ffffff;
-  --color-user-msg: #007bff;
-  --color-bot-msg: #ffffff;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
