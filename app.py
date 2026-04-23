@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
-from chatbot import SmartChatbot
+# SmartChatbot is imported lazily in get_chatbot() to save startup memory
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import uvicorn
@@ -40,6 +40,7 @@ _chatbot_instance = None
 def get_chatbot():
     global _chatbot_instance
     if _chatbot_instance is None:
+        from chatbot import SmartChatbot
         _chatbot_instance = SmartChatbot()
     return _chatbot_instance
 
