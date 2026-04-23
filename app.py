@@ -33,8 +33,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize the chatbot once on startup
-chatbot = SmartChatbot()
+# Lazy-load chatbot to reduce startup memory (Render free tier = 512MB)
+# Auth endpoints work immediately; chatbot loads only on first /ask
+_chatbot_instance = None
+
+def get_chatbot():
+    global _chatbot_instance
+    if _chatbot_instance is None:
+        _chatbot_instance = SmartChatbot()
+    return _chatbot_instance
 
 # OAuth2 setup
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -228,11 +235,12 @@ async def ask_question(
             print(f"DEBUG: Created new conversation: {conversation_id} with title: '{title}'")
 
         # 2. Get model response
-        if chatbot.is_mcq(user_input):
-            parsed = chatbot.parse_mcq(user_input)
-            response = chatbot.get_mcq_response(parsed)
+        bot = get_chatbot()
+        if bot.is_mcq(user_input):
+            parsed = bot.parse_mcq(user_input)
+            response = bot.get_mcq_response(parsed)
         else:
-            response = chatbot.get_plain_response(user_input)
+            response = bot.get_plain_response(user_input)
             
         # Ensure response is a dictionary we can modify
         if not isinstance(response, dict):
