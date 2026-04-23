@@ -9,6 +9,11 @@ from nltk.tokenize import word_tokenize
 from sklearn.metrics.pairwise import cosine_similarity
 import sys
 import random
+import os
+from dotenv import load_dotenv
+from huggingface_hub import InferenceClient
+
+load_dotenv()
 
 # Download necessary NLTK data
 for r in ['stopwords', 'punkt', 'wordnet', 'punkt_tab']:
@@ -39,6 +44,16 @@ class SmartChatbot:
             self.lemmatizer = WordNetLemmatizer()
             self.stop_words = set(stopwords.words('english'))
             
+            # Initialize Hugging Face Client for fallback
+            self.hf_token = os.getenv("HF_TOKEN")
+            if self.hf_token:
+                # Remove any quotes or spaces that might have been added
+                self.hf_token = self.hf_token.strip().strip('"').strip("'")
+            
+            self.hf_client = InferenceClient(
+                token=self.hf_token
+            ) if self.hf_token else None
+            
             # MCQ patterns
             self.MCQ_PATTERNS = [
                 r'\b[AaBbCcDd][\)\.]\s*\S+',
@@ -68,27 +83,14 @@ class SmartChatbot:
         )
 
     def is_mcq(self, text):
-        # 1. Stricter plain question check (case-insensitive, ignores leading space)
-        text_lower = text.lower().strip()
-        plain_starts = ('what is', 'what are', 'how do', 'how does', 'tell me', 'define', 'explain', 'why')
-        if text_lower.startswith(plain_starts):
-            return False
-
-        # 2. Check for actual MCQ options patterns (A), B), 1., etc.)
-        # We now require at least 2 distinct options to consider it an MCQ
-        matches = []
         for pattern in self.MCQ_PATTERNS:
-            matches.extend(re.findall(pattern, text))
-        
-        # Must have at least 2 options to be an MCQ
-        if len(set(matches)) < 2:
-            return False
-            
-        return True
+            matches = re.findall(pattern, text)
+            if len(matches) >= 2:
+                return True
+        return False
 
     def parse_mcq(self, text):
         text = text.strip()
-        # Normalize various option formats to A), B), C), D)
         text = re.sub(r'\b1[\)\.]', 'A)', text)
         text = re.sub(r'\b2[\)\.]', 'B)', text)
         text = re.sub(r'\b3[\)\.]', 'C)', text)
@@ -100,7 +102,7 @@ class SmartChatbot:
         splits = re.split(option_pattern, text, flags=re.IGNORECASE)
 
         if len(splits) < 3:
-            return {'question': text, 'options': {}, 'error': True}
+            return {'question': text, 'options': {}}
 
         question_stem = splits[0].strip()
         options = {}
@@ -109,12 +111,26 @@ class SmartChatbot:
             value = splits[i+1].strip().rstrip(',;') if i+1 < len(splits) else ''
             if letter in 'ABCD' and value:
                 options[letter] = value
+        return {'question': question_stem, 'options': options}
+
+    def get_deepseek_response(self, user_question):
+        """Fallback to DeepSeek R1 if local knowledge base fails."""
+        print(f"DEBUG: Local KB match score too low. Falling back to DeepSeek-R1 for: '{user_question}'")
+        if not self.hf_client:
+            return "DeepSeek fallback is not configured (HF_TOKEN missing)."
         
-        return {
-            'question': question_stem, 
-            'options': options,
-            'error': len(options) < 2
-        }
+        try:
+            # Using chat_completion with an explicit model to satisfy the conversational task
+            response = self.hf_client.chat_completion(
+                model="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+                messages=[{"role": "user", "content": user_question}],
+                max_tokens=500
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            return f"Error calling DeepSeek: {str(e)}"
 
     def get_plain_response(self, user_question):
         q_clean = self.preprocess(user_question)
@@ -124,10 +140,14 @@ class SmartChatbot:
         score = sims[best_idx]
         
         if score < 0.12:
+            # TRIGGER FALLBACK HERE
+            deepseek_answer = self.get_deepseek_response(user_question)
             return {
                 "type": "plain",
-                "status": "not_found",
-                "response": "I don't have enough information on that. Try asking about science topics."
+                "status": "success", # Changed to success because we found a fallback answer
+                "match_confidence": 0.0, # Indicates it didn't come from local KB
+                "source": "DeepSeek-R1",
+                "response": deepseek_answer
             }
         
         matched = self.kb.iloc[best_idx]['question']
@@ -136,6 +156,7 @@ class SmartChatbot:
             "type": "plain",
             "status": "success",
             "match_confidence": round(float(score), 4),
+            "source": "Knowledge Base",
             "matched_question": matched,
             "response": answer
         }
@@ -192,6 +213,8 @@ class SmartChatbot:
         return {
             "type": "mcq",
             "status": "success",
+            "source": "Knowledge Base",
+            "match_confidence": option_scores[best_letter]['cos_sim'],
             "question": question_stem,
             "options": option_scores,
             "best_option": best_letter,

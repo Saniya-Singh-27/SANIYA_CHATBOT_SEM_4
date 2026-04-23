@@ -1,24 +1,15 @@
 services:
-  # Backend Service
   - type: web
-    name: Saniya_Backend
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 1 -k uvicorn.workers.UvicornWorker app:app
+    name: smart-science-chatbot
+    env: docker
     plan: free
+    healthCheckPath: /
     envVars:
       - key: DATABASE_URL
-        sync: false
-      - key: SECRET_KEY
-        generateValue: true
+        fromDatabase:
+          name: chatbot_db
+          property: connectionString
 
-  # Frontend Service (Deployed as Static Site)
-  - type: static
-    name: Saniya_Frontend
-    env: static
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: frontend/dist
+databases:
+  - name: chatbot_db
     plan: free
-    envVars:
-      - key: VITE_API_URL
-        sync: false

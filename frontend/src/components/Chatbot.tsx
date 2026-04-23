@@ -13,7 +13,7 @@ interface Message {
 
 const Chatbot = () => {
   const [messages, setMessages] = useState<Message[]>([
-    { id: 1, text: "Hello! I'm your Science Assistant. Ask me anything about science topics like erosion, circuits, or rocks!", sender: 'bot' }
+    { id: 1, text: "Hi  Bestie! How Can I Help?", sender: 'bot' }
   ]);
   const [history, setHistory] = useState<any[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
@@ -37,14 +37,9 @@ const Chatbot = () => {
   const fetchHistory = async () => {
     try {
       const response = await chatApi.getHistory();
-      if (response && response.data && Array.isArray(response.data)) {
-        setHistory(response.data);
-      } else {
-        setHistory([]);
-      }
+      setHistory(response.data);
     } catch (err) {
       console.error('Failed to fetch history', err);
-      setHistory([]);
     }
   };
 
@@ -55,6 +50,20 @@ const Chatbot = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Handle browser back button to logout
+  useEffect(() => {
+    const handleBackButton = () => {
+      console.log("Back button detected, logging out...");
+      handleLogout();
+    };
+
+    window.addEventListener('popstate', handleBackButton);
+    
+    return () => {
+      window.removeEventListener('popstate', handleBackButton);
+    };
+  }, []);
 
   const handleClearHistory = async () => {
     if (window.confirm('Are you sure you want to clear all chat history?')) {
@@ -96,44 +105,39 @@ const Chatbot = () => {
   };
 
   const loadConversation = async (item: any) => {
-    if (!item || !item.id) return;
     setCurrentConversationId(item.id);
     setLoading(true);
     try {
       const response = await chatApi.getConversationMessages(item.id);
-      if (response && response.data && Array.isArray(response.data)) {
-        const conversationMessages: Message[] = [];
-        
-        response.data.forEach((msg: any) => {
-          // Add User Message
-          conversationMessages.push({
-            id: msg.id * 2,
-            text: msg.question || '',
-            sender: 'user'
-          });
-
-          // Add Bot Response
-          const botData = msg.response;
-          if (botData) {
-            let botText = '';
-            if (botData.type === 'plain') {
-              botText = botData.response || '';
-            } else if (botData.type === 'mcq') {
-              botText = `Correct Answer: (${botData.best_option || '?'}) ${botData.correct_answer || ''}\n\nExplanation: ${botData.explanation || ''}`;
-            }
-            
-            conversationMessages.push({
-              id: msg.id * 2 + 1,
-              text: botText,
-              sender: 'bot',
-              type: botData.type,
-              data: botData
-            });
-          }
+      const conversationMessages: Message[] = [];
+      
+      response.data.forEach((msg: any) => {
+        // Add User Message
+        conversationMessages.push({
+          id: msg.id * 2, // Ensure unique IDs
+          text: msg.question,
+          sender: 'user'
         });
 
-        setMessages(conversationMessages);
-      }
+        // Add Bot Response
+        const botData = msg.response;
+        let botText = '';
+        if (botData.type === 'plain') {
+          botText = botData.response;
+        } else {
+          botText = `Correct Answer: (${botData.best_option}) ${botData.correct_answer}\n\nExplanation: ${botData.explanation}`;
+        }
+        
+        conversationMessages.push({
+          id: msg.id * 2 + 1,
+          text: botText,
+          sender: 'bot',
+          type: botData.type,
+          data: botData
+        });
+      });
+
+      setMessages(conversationMessages);
     } catch (err) {
       console.error('Failed to load conversation', err);
     } finally {
@@ -180,14 +184,10 @@ const Chatbot = () => {
       }
 
       let botText = '';
-      if (typeof botData === 'string' || !botData) {
-        throw new Error('Server returned an invalid format (HTML/String). This usually means the VITE_API_URL environment variable is missing on Render, causing the frontend to request its own URL instead of the backend.');
-      } else if (botData.type === 'plain') {
-        botText = botData.response || 'No response provided.';
-      } else if (botData.type === 'mcq') {
-        botText = `Correct Answer: (${botData.best_option || '?'}) ${botData.correct_answer || ''}\n\nExplanation: ${botData.explanation || ''}`;
+      if (botData.type === 'plain') {
+        botText = botData.response;
       } else {
-        botText = botData.response || 'An unexpected response was received.';
+        botText = `Correct Answer: (${botData.best_option}) ${botData.correct_answer}\n\nExplanation: ${botData.explanation}`;
       }
 
       const botMessage: Message = {
@@ -201,12 +201,7 @@ const Chatbot = () => {
       setMessages(prev => [...prev, botMessage]);
       fetchHistory(); // Refresh sidebar history
     } catch (err: any) {
-      let errorMsg = 'Failed to get response. Please try again.';
-      if (err.response?.status === 401) {
-        errorMsg = 'Session expired. Please login again.';
-      } else if (err.message && err.message.includes('Server returned an invalid format')) {
-        errorMsg = err.message;
-      }
+      const errorMsg = err.response?.status === 401 ? 'Session expired. Please login again.' : 'Failed to get response. Please try again.';
       setMessages(prev => [...prev, { id: Date.now() + 1, text: errorMsg, sender: 'bot' }]);
       if (err.response?.status === 401) {
         setTimeout(() => navigate('/login'), 2000);
@@ -241,7 +236,7 @@ const Chatbot = () => {
               No past conversations
             </div>
           ) : (
-            history.map((item) => (
+            history.map((item, i) => (
               <div 
                 key={item.id} 
                 onClick={() => loadConversation(item)}
@@ -302,14 +297,24 @@ const Chatbot = () => {
                     </div>
                     <div className={`rounded-2xl px-5 py-4 text-[15px] leading-relaxed shadow-sm ${msg.sender === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white text-slate-700 rounded-tl-none border border-gray-50'}`}>
                       <div className="whitespace-pre-wrap">{msg.text}</div>
-                      {msg.data?.type === 'mcq' && msg.data?.options && (
+                      
+                      {msg.sender === 'bot' && msg.data?.match_confidence !== undefined && (
+                        <div className="mt-3 flex items-center gap-2">
+                          <div className={`h-1.5 w-1.5 rounded-full ${msg.data.source === 'DeepSeek-R1' ? 'bg-purple-400' : 'bg-green-400'}`}></div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                            {msg.data.source || 'AI'}: {(msg.data.match_confidence * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                      )}
+
+                      {msg.data?.type === 'mcq' && (
                         <div className="mt-4 space-y-2 border-t border-gray-50 pt-4">
                           {Object.entries(msg.data.options).map(([letter, opt]: [string, any]) => (
                             <div key={letter} className={`flex items-center gap-3 rounded-lg border p-2.5 text-sm transition-colors ${letter === msg.data.best_option ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-100'}`}>
                               <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${letter === msg.data.best_option ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
                                 {letter}
                               </span>
-                              <span>{opt?.text || 'Option'}</span>
+                              <span>{opt.text}</span>
                             </div>
                           ))}
                         </div>

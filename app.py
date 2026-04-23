@@ -28,7 +28,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For production, specify the actual frontend URL
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -230,16 +230,13 @@ async def ask_question(
         # 2. Get model response
         if chatbot.is_mcq(user_input):
             parsed = chatbot.parse_mcq(user_input)
-            if not parsed.get('error'):
-                response = chatbot.get_mcq_response(parsed)
-            else:
-                response = chatbot.get_plain_response(user_input)
+            response = chatbot.get_mcq_response(parsed)
         else:
             response = chatbot.get_plain_response(user_input)
             
-        # Ensure response is a dictionary and handle error status
-        if not isinstance(response, dict) or response.get('status') == 'error':
-            response = chatbot.get_plain_response(user_input)
+        # Ensure response is a dictionary we can modify
+        if not isinstance(response, dict):
+            response = {"response": str(response), "type": "plain"}
 
         # 3. Record question and response in ChatHistory
         history_entry = models.ChatHistory(
