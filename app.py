@@ -34,13 +34,20 @@ app.add_middleware(
 )
 
 # Lazy-load chatbot to reduce startup memory (Render free tier = 512MB)
-# Auth endpoints work immediately; chatbot loads only on first /ask
+# Set CHATBOT_MODE=lite on Render to use DeepSeek-only (no pandas/sklearn)
 _chatbot_instance = None
 
 def get_chatbot():
     global _chatbot_instance
     if _chatbot_instance is None:
-        from chatbot import SmartChatbot
+        import os
+        mode = os.getenv("CHATBOT_MODE", "full")
+        if mode == "lite":
+            # Render deployment: lightweight DeepSeek-only chatbot (~30MB)
+            from chatbot_lite import SmartChatbot
+        else:
+            # Local dev: full chatbot with ML models (~300MB+)
+            from chatbot import SmartChatbot
         _chatbot_instance = SmartChatbot()
     return _chatbot_instance
 
